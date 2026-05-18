@@ -1,0 +1,265 @@
+# =============================================================================
+# Kubernetes & Istio Required Fields Reference
+# kubectl client: v1.35.3 | istioctl: v1.29.1
+#
+# Each section shows the minimum required fields to produce a valid object.
+# Fields marked [REQUIRED] must be present for the API to accept the object.
+# Fields marked [CONDITIONAL] are required only when a parent block is used.
+# Fields marked [RECOMMENDED] are not required by schema but nearly always needed.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# POD  (core/v1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#   - spec.containers[].name
+#   - spec.containers[].image
+# -----------------------------------------------------------------------------
+apiVersion: v1            # [REQUIRED]
+kind: Pod                 # [REQUIRED]
+metadata:
+  name: my-pod            # [REQUIRED]
+spec:
+  containers:             # [REQUIRED] at least one entry
+    - name: main          # [REQUIRED] unique within the pod
+      image: nginx:latest # [REQUIRED]
+
+---
+# -----------------------------------------------------------------------------
+# DEPLOYMENT  (apps/v1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#   - spec.selector.matchLabels         (must match spec.template.metadata.labels)
+#   - spec.template.metadata.labels     (must satisfy the selector above)
+#   - spec.template.spec.containers[].name
+#   - spec.template.spec.containers[].image
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1       # [REQUIRED]
+kind: Deployment          # [REQUIRED]
+metadata:
+  name: my-deployment     # [REQUIRED]
+spec:
+  selector:               # [REQUIRED]
+    matchLabels:          # [REQUIRED]
+      app: my-app         # [REQUIRED] at least one label; must match template labels
+  template:               # [REQUIRED]
+    metadata:
+      labels:             # [REQUIRED] must satisfy spec.selector.matchLabels
+        app: my-app
+    spec:
+      containers:         # [REQUIRED] at least one entry
+        - name: main      # [REQUIRED]
+          image: nginx:latest # [REQUIRED]
+
+---
+# -----------------------------------------------------------------------------
+# CONFIGMAP  (core/v1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#
+# Note: `data` and `binaryData` are both optional. A ConfigMap with no data
+#       is valid but not useful.
+# -----------------------------------------------------------------------------
+apiVersion: v1            # [REQUIRED]
+kind: ConfigMap           # [REQUIRED]
+metadata:
+  name: my-configmap      # [REQUIRED]
+data:                     # [RECOMMENDED] key-value string pairs
+  key: value
+
+---
+# -----------------------------------------------------------------------------
+# INGRESS  (networking.k8s.io/v1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#
+# Conditional requirements (when spec.rules is used):
+#   - spec.rules[].http.paths[].pathType        one of: Prefix | Exact | ImplementationSpecific
+#   - spec.rules[].http.paths[].backend.service.name
+#   - spec.rules[].http.paths[].backend.service.port.number  (OR .port.name)
+#
+# Note: spec.rules[].host is optional (matches all hosts if omitted).
+#       An Ingress with no rules and no defaultBackend is valid but passes no traffic.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1  # [REQUIRED]
+kind: Ingress                     # [REQUIRED]
+metadata:
+  name: my-ingress                # [REQUIRED]
+spec:
+  rules:
+    - host: example.com           # [RECOMMENDED] omit to match all hosts
+      http:
+        paths:
+          - pathType: Prefix      # [CONDITIONAL-REQUIRED] if this paths[] entry exists
+            path: /
+            backend:
+              service:
+                name: my-service  # [CONDITIONAL-REQUIRED]
+                port:
+                  number: 80      # [CONDITIONAL-REQUIRED] (OR use `name: http`)
+
+---
+# -----------------------------------------------------------------------------
+# SERVICE  (core/v1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#
+# Conditional requirements (when spec.ports is used, which is nearly always):
+#   - spec.ports[].port             the port number exposed by the Service
+#
+# Note: spec.selector is optional (absent = headless / ExternalName service).
+#       spec.ports[].protocol defaults to TCP; spec.ports[].targetPort defaults
+#       to the value of port.
+# -----------------------------------------------------------------------------
+apiVersion: v1            # [REQUIRED]
+kind: Service             # [REQUIRED]
+metadata:
+  name: my-service        # [REQUIRED]
+spec:
+  selector:               # [RECOMMENDED] omit only for headless/ExternalName services
+    app: my-app
+  ports:                  # [RECOMMENDED] at least one entry for traffic to route
+    - port: 80            # [CONDITIONAL-REQUIRED] if this ports[] entry exists
+      targetPort: 8080    # [RECOMMENDED] defaults to `port` if omitted
+      protocol: TCP       # optional; defaults to TCP
+
+---
+# =============================================================================
+# ISTIO RESOURCES
+# API group: networking.istio.io / security.istio.io
+# Recommended apiVersion: v1beta1 (stable across Istio 1.x)
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# VIRTUALSERVICE  (networking.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#   - spec.hosts[]                at least one entry (FQDN, short name, or *)
+#
+# Conditional requirements (when spec.http is used):
+#   - spec.http[].route[].destination.host
+#
+# Note: spec.gateways is optional (defaults to mesh-internal traffic).
+#       At least one of spec.http / spec.tcp / spec.tls should be present
+#       for the resource to have effect.
+# -----------------------------------------------------------------------------
+apiVersion: networking.istio.io/v1beta1  # [REQUIRED]
+kind: VirtualService                     # [REQUIRED]
+metadata:
+  name: my-virtualservice                # [REQUIRED]
+spec:
+  hosts:                                 # [REQUIRED] at least one entry
+    - my-service
+  gateways:                              # [RECOMMENDED] reference a Gateway for ingress traffic
+    - my-gateway
+  http:                                  # [RECOMMENDED] HTTP routing rules
+    - route:
+        - destination:
+            host: my-service             # [CONDITIONAL-REQUIRED] if this route[] entry exists
+            port:
+              number: 80                 # [RECOMMENDED] required if service has multiple ports
+
+---
+# -----------------------------------------------------------------------------
+# GATEWAY  (networking.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#   - spec.selector                     labels identifying the ingress gateway pod(s)
+#   - spec.servers[]                    at least one entry
+#   - spec.servers[].port.number        port number
+#   - spec.servers[].port.name          unique name for the port
+#   - spec.servers[].port.protocol      one of: HTTP | HTTPS | GRPC | HTTP2 | MONGO | TCP | TLS
+#   - spec.servers[].hosts[]            at least one entry (namespace/host format or bare host)
+# -----------------------------------------------------------------------------
+apiVersion: networking.istio.io/v1beta1  # [REQUIRED]
+kind: Gateway                            # [REQUIRED]
+metadata:
+  name: my-gateway                       # [REQUIRED]
+spec:
+  selector:                              # [REQUIRED] selects istio ingress gateway pods
+    istio: ingressgateway
+  servers:                               # [REQUIRED] at least one entry
+    - port:
+        number: 80                       # [REQUIRED]
+        name: http                       # [REQUIRED] unique within this Gateway
+        protocol: HTTP                   # [REQUIRED]
+      hosts:                             # [REQUIRED] at least one entry
+        - "*"                            # namespace/host or bare host; * matches all
+
+---
+# -----------------------------------------------------------------------------
+# DESTINATIONRULE  (networking.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#   - spec.host                         FQDN or short name of the destination service
+#
+# Note: spec.trafficPolicy and spec.subsets are both optional.
+#       Without them the DestinationRule is valid but has no behavioral effect
+#       beyond selecting the host for future policy attachment.
+# -----------------------------------------------------------------------------
+apiVersion: networking.istio.io/v1beta1  # [REQUIRED]
+kind: DestinationRule                    # [REQUIRED]
+metadata:
+  name: my-destinationrule               # [REQUIRED]
+spec:
+  host: my-service                       # [REQUIRED] target service hostname
+  trafficPolicy:                         # [RECOMMENDED] define mTLS, load balancing, etc.
+    tls:
+      mode: ISTIO_MUTUAL                 # DISABLE | SIMPLE | MUTUAL | ISTIO_MUTUAL
+  subsets:                               # [RECOMMENDED] define named subsets for routing
+    - name: v1
+      labels:
+        version: v1
+
+---
+# -----------------------------------------------------------------------------
+# PEERAUTHENTICATION  (security.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+# Required at schema level:
+#   - apiVersion
+#   - kind
+#   - metadata.name
+#
+# Note: spec is optional at the schema level.
+#       - If spec.selector is absent  → policy applies to ALL workloads in namespace
+#         (namespace-wide), or ALL workloads in the mesh if in the root namespace.
+#       - If spec.mtls is absent      → mode defaults to UNSET (inherits from parent policy).
+#       spec.mtls.mode values: UNSET | DISABLE | PERMISSIVE | STRICT
+# -----------------------------------------------------------------------------
+apiVersion: security.istio.io/v1beta1    # [REQUIRED]
+kind: PeerAuthentication                 # [REQUIRED]
+metadata:
+  name: my-peerauthentication            # [REQUIRED]
+  namespace: my-namespace                # [RECOMMENDED] omit only for mesh-wide policy
+spec:
+  selector:                              # [RECOMMENDED] omit to apply to entire namespace
+    matchLabels:
+      app: my-app
+  mtls:
+    mode: STRICT                         # [RECOMMENDED] UNSET | DISABLE | PERMISSIVE | STRICT

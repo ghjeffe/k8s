@@ -1,0 +1,306 @@
+# =============================================================================
+# Kubernetes & Istio Example Resource Definitions
+# All fields are annotated with their requirement level and purpose.
+#   [REQUIRED]              – must be present for the API to accept the object
+#   [CONDITIONAL-REQUIRED]  – required only when a parent block is used
+#   [RECOMMENDED]           – not required by schema but nearly always needed
+#   [OPTIONAL]              – has a sensible default or is situational
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# POD  (core/v1)
+# -----------------------------------------------------------------------------
+apiVersion: v1                        # [REQUIRED] API version for Pod
+kind: Pod                             # [REQUIRED] resource type
+metadata:
+  name: web-server                    # [REQUIRED] unique name within the namespace
+  labels:                             # [RECOMMENDED] used by Services and selectors to find this pod
+    app: web
+    environment: production
+spec:
+  containers:                         # [REQUIRED] at least one container entry
+    - name: nginx                     # [REQUIRED] unique container name within the pod
+      image: nginx:1.27-alpine        # [REQUIRED] container image and tag
+      ports:
+        - containerPort: 80           # [RECOMMENDED] declares the port the container listens on
+      resources:                      # [RECOMMENDED] prevents noisy-neighbor issues on the node
+        requests:
+          cpu: 100m                   # minimum CPU guaranteed to this container
+          memory: 128Mi               # minimum memory guaranteed
+        limits:
+          cpu: 250m                   # hard CPU ceiling
+          memory: 256Mi               # hard memory ceiling; OOMKilled if exceeded
+      livenessProbe:                  # [RECOMMENDED] restarts the container if it becomes unhealthy
+        httpGet:
+          path: /healthz
+          port: 80
+        initialDelaySeconds: 5        # wait before first probe
+        periodSeconds: 10             # interval between probes
+    - name: log-shipper               # second container in the same pod (sidecar pattern)
+      image: fluent/fluent-bit:3.1
+      volumeMounts:
+        - name: shared-logs           # mount the shared volume
+          mountPath: /var/log/app
+  volumes:                            # [OPTIONAL] pod-level volume definitions
+    - name: shared-logs
+      emptyDir: {}                    # ephemeral volume shared between containers in this pod
+
+---
+# -----------------------------------------------------------------------------
+# DEPLOYMENT  (apps/v1)
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1                   # [REQUIRED] API version for Deployment
+kind: Deployment                      # [REQUIRED] resource type
+metadata:
+  name: checkout-api                  # [REQUIRED] unique name within the namespace
+spec:
+  replicas: 3                         # [RECOMMENDED] number of pod replicas; defaults to 1
+  strategy:                           # [OPTIONAL] controls how pods are replaced during updates
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1                     # max pods over desired count during rollout
+      maxUnavailable: 0               # zero-downtime: never remove a pod before a new one is ready
+  selector:                           # [REQUIRED] must match spec.template.metadata.labels
+    matchLabels:
+      app: checkout                   # [REQUIRED] at least one label
+  template:                           # [REQUIRED] pod template
+    metadata:
+      labels:                         # [REQUIRED] must satisfy spec.selector.matchLabels
+        app: checkout
+        version: v2                   # additional label for subset routing with Istio
+    spec:
+      containers:                     # [REQUIRED] at least one container entry
+        - name: api                   # [REQUIRED] unique container name
+          image: myregistry.io/checkout-api:2.4.1  # [REQUIRED] container image
+          ports:
+            - containerPort: 8080     # [RECOMMENDED] port the app listens on
+          env:                        # [OPTIONAL] environment variables injected into the container
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:      # pulls value from a ConfigMap
+                  name: checkout-config
+                  key: db_host
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:         # pulls value from a Secret (base64-decoded automatically)
+                  name: checkout-secrets
+                  key: db_password
+          readinessProbe:             # [RECOMMENDED] gates traffic until the pod is ready
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+
+---
+# -----------------------------------------------------------------------------
+# CONFIGMAP  (core/v1)
+# -----------------------------------------------------------------------------
+apiVersion: v1                        # [REQUIRED] API version for ConfigMap
+kind: ConfigMap                       # [REQUIRED] resource type
+metadata:
+  name: checkout-config               # [REQUIRED] unique name within the namespace
+data:                                 # [RECOMMENDED] key-value string pairs; optional by schema but useless without
+  db_host: postgres.database.svc.cluster.local  # plain string value, used by pods via envFrom or env.valueFrom
+  db_port: "5432"                     # values must be strings; wrap numbers in quotes
+  log_level: info                     # application-level config consumed at runtime
+  app.properties: |                   # multi-line value using YAML literal block scalar
+    server.port=8080                  # embeds an entire config file as a single key
+    spring.datasource.hikari.maximum-pool-size=20
+    feature.dark-mode=true
+
+---
+# -----------------------------------------------------------------------------
+# INGRESS  (networking.k8s.io/v1)
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1      # [REQUIRED] API version for Ingress
+kind: Ingress                         # [REQUIRED] resource type
+metadata:
+  name: app-ingress                   # [REQUIRED] unique name within the namespace
+  annotations:                        # [OPTIONAL] controller-specific configuration
+    nginx.ingress.kubernetes.io/rewrite-target: /  # rewrites the URL path before forwarding
+spec:
+  ingressClassName: nginx             # [RECOMMENDED] selects which ingress controller handles this resource
+  tls:                                # [OPTIONAL] enables TLS termination at the ingress
+    - hosts:
+        - app.example.com            # hostname the cert covers
+      secretName: app-tls-secret     # k8s Secret containing tls.crt and tls.key
+  rules:
+    - host: app.example.com          # [RECOMMENDED] omit to match all hosts
+      http:
+        paths:
+          - pathType: Prefix          # [CONDITIONAL-REQUIRED] Prefix, Exact, or ImplementationSpecific
+            path: /api                # [RECOMMENDED] URL path to match
+            backend:
+              service:
+                name: api-service     # [CONDITIONAL-REQUIRED] target Service name
+                port:
+                  number: 8080        # [CONDITIONAL-REQUIRED] target Service port (or use port.name)
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
+    - host: admin.example.com         # second host rule
+      http:
+        paths:
+          - pathType: Exact           # only matches /dashboard exactly, not /dashboard/settings
+            path: /dashboard
+            backend:
+              service:
+                name: admin-service
+                port:
+                  number: 3000
+
+---
+# -----------------------------------------------------------------------------
+# SERVICE  (core/v1)
+# -----------------------------------------------------------------------------
+apiVersion: v1                        # [REQUIRED] API version for Service
+kind: Service                         # [REQUIRED] resource type
+metadata:
+  name: checkout-service              # [REQUIRED] unique name; used as DNS hostname within the cluster
+spec:
+  type: ClusterIP                     # [OPTIONAL] defaults to ClusterIP; other options: NodePort, LoadBalancer, ExternalName
+  selector:                           # [RECOMMENDED] label selector matching target pod labels; omit only for headless/ExternalName
+    app: checkout                     # must match labels on the pods you want to route to
+  ports:                              # [RECOMMENDED] at least one port entry for traffic to flow
+    - name: http                      # [RECOMMENDED] required when multiple ports are defined; used by Istio for protocol detection
+      port: 80                        # [CONDITIONAL-REQUIRED] port exposed by the Service (what clients connect to)
+      targetPort: 8080                # [RECOMMENDED] port on the pod; defaults to `port` if omitted
+      protocol: TCP                   # [OPTIONAL] defaults to TCP; also supports UDP, SCTP
+    - name: metrics                   # second port for Prometheus scraping
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+
+---
+# =============================================================================
+# ISTIO RESOURCES
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# VIRTUALSERVICE  (networking.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+apiVersion: networking.istio.io/v1beta1  # [REQUIRED] Istio networking API version
+kind: VirtualService                     # [REQUIRED] resource type
+metadata:
+  name: checkout-vs                      # [REQUIRED] unique name within the namespace
+spec:
+  hosts:                                 # [REQUIRED] at least one; FQDN, short name, or * for all hosts
+    - checkout.example.com               # matches incoming Host header
+  gateways:                              # [RECOMMENDED] ties this VS to a Gateway for ingress traffic; omit for mesh-internal only
+    - public-gateway                     # name of the Gateway resource
+  http:                                  # [RECOMMENDED] HTTP route rules; at least one of http/tcp/tls needed for effect
+    - match:                             # first rule: header-based canary routing
+        - headers:
+            x-canary:
+              exact: "true"              # route to v3 only when this header is present
+      route:
+        - destination:
+            host: checkout-service       # [CONDITIONAL-REQUIRED] target service hostname
+            subset: v3                   # [RECOMMENDED] references a DestinationRule subset
+            port:
+              number: 80                 # [RECOMMENDED] required if the service exposes multiple ports
+    - route:                             # second rule: weighted traffic split (default, no match block)
+        - destination:
+            host: checkout-service
+            subset: v2
+            port:
+              number: 80
+          weight: 90                     # [RECOMMENDED] percentage of traffic; all weights must sum to 100
+        - destination:
+            host: checkout-service
+            subset: v3
+            port:
+              number: 80
+          weight: 10
+      timeout: 10s                       # [OPTIONAL] per-route request timeout
+      retries:                           # [OPTIONAL] retry policy
+        attempts: 3                      # max retry count
+        perTryTimeout: 3s                # timeout for each individual attempt
+
+---
+# -----------------------------------------------------------------------------
+# GATEWAY  (networking.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+apiVersion: networking.istio.io/v1beta1  # [REQUIRED] Istio networking API version
+kind: Gateway                            # [REQUIRED] resource type
+metadata:
+  name: public-gateway                   # [REQUIRED] unique name; referenced by VirtualServices
+spec:
+  selector:                              # [REQUIRED] label selector for the istio ingress gateway pods
+    istio: ingressgateway                # must match labels on the gateway deployment
+  servers:                               # [REQUIRED] at least one server entry
+    - port:
+        number: 443                      # [REQUIRED] listener port number
+        name: https                      # [REQUIRED] unique name within this Gateway; Istio uses it for protocol detection
+        protocol: HTTPS                  # [REQUIRED] one of: HTTP, HTTPS, GRPC, HTTP2, MONGO, TCP, TLS
+      tls:                               # [CONDITIONAL-REQUIRED] required when protocol is HTTPS or TLS
+        mode: SIMPLE                     # TLS termination mode; SIMPLE = gateway terminates TLS
+        credentialName: example-com-tls  # [CONDITIONAL-REQUIRED] references a k8s Secret holding the cert/key
+      hosts:                             # [REQUIRED] at least one; restricts which hosts this server handles
+        - "*.example.com"                # wildcard matches all subdomains
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      tls:
+        httpsRedirect: true              # [OPTIONAL] 301 redirect all HTTP traffic to HTTPS
+      hosts:
+        - "*.example.com"
+
+---
+# -----------------------------------------------------------------------------
+# DESTINATIONRULE  (networking.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+apiVersion: networking.istio.io/v1beta1  # [REQUIRED] Istio networking API version
+kind: DestinationRule                    # [REQUIRED] resource type
+metadata:
+  name: checkout-dr                      # [REQUIRED] unique name within the namespace
+spec:
+  host: checkout-service                 # [REQUIRED] target service; FQDN or short name
+  trafficPolicy:                         # [RECOMMENDED] defines connection behavior; without it the rule has no effect
+    tls:
+      mode: ISTIO_MUTUAL                 # [RECOMMENDED] mTLS mode: DISABLE, SIMPLE, MUTUAL, ISTIO_MUTUAL
+    connectionPool:                      # [OPTIONAL] circuit-breaker and connection tuning
+      http:
+        h2UpgradePolicy: DEFAULT         # [OPTIONAL] controls HTTP/2 upgrade behavior
+        maxRequestsPerConnection: 100    # [OPTIONAL] limits requests per connection to force reconnection
+    outlierDetection:                    # [OPTIONAL] evicts unhealthy endpoints from the load balancing pool
+      consecutive5xxErrors: 3            # eject after 3 consecutive 5xx responses
+      interval: 30s                      # evaluation interval
+      baseEjectionTime: 60s              # minimum ejection duration
+  subsets:                               # [RECOMMENDED] named subsets for routing via VirtualService
+    - name: v2                           # subset name referenced in VirtualService destination
+      labels:
+        version: v2                      # must match pod labels
+    - name: v3
+      labels:
+        version: v3
+      trafficPolicy:                     # [OPTIONAL] per-subset override of the top-level traffic policy
+        connectionPool:
+          http:
+            maxRequestsPerConnection: 50
+
+---
+# -----------------------------------------------------------------------------
+# PEERAUTHENTICATION  (security.istio.io/v1beta1)
+# -----------------------------------------------------------------------------
+apiVersion: security.istio.io/v1beta1    # [REQUIRED] Istio security API version
+kind: PeerAuthentication                 # [REQUIRED] resource type
+metadata:
+  name: checkout-mtls                    # [REQUIRED] unique name
+  namespace: checkout-ns                 # [RECOMMENDED] scopes policy to this namespace; omit only for mesh-wide in root namespace
+spec:
+  selector:                              # [RECOMMENDED] targets specific workloads; omit to apply to entire namespace
+    matchLabels:
+      app: checkout                      # must match pod labels
+  mtls:
+    mode: STRICT                         # [RECOMMENDED] UNSET (inherit), DISABLE, PERMISSIVE, STRICT
+  portLevelMtls:                         # [OPTIONAL] override mTLS mode for specific ports
+    9090:
+      mode: PERMISSIVE                   # allow plaintext on metrics port so Prometheus can scrape without a sidecar

@@ -1,0 +1,55 @@
+graph TD
+    %% Styling
+    classDef external fill:#f9f9f9,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef edge fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    classDef istio fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px;
+    classDef network fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
+    classDef compute fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    classDef config fill:#fce4ec,stroke:#c2185b,stroke-width:2px;
+
+    %% Nodes
+    Client((External Internet Client)):::external
+
+    subgraph Edge Layer
+        Ingress["Kubernetes Ingress<br/>(Matches Host/Path)"]:::edge
+        Gateway["Istio Gateway<br/>(Ports & TLS Termination)"]:::istio
+    end
+
+    subgraph Istio Routing Layer
+        VS["Istio VirtualService<br/>(Path/Header Routing & Traffic Split)"]:::istio
+        DR["Istio DestinationRule<br/>(Subsets, Circuit Breaking, mTLS)"]:::istio
+    end
+
+    subgraph Internal Networking Layer
+        Service["Kubernetes Service<br/>(Internal DNS & Pod Grouping)"]:::network
+    end
+
+    subgraph Workload & Compute Layer
+        Deployment["Kubernetes Deployment<br/>(Replica Management)"]:::compute
+        Pod["Kubernetes Pod<br/>(Runs Containers)"]:::compute
+        PA["Istio PeerAuthentication<br/>(mTLS Enforcement)"]:::istio
+    end
+
+    subgraph Configuration Layer
+        CM["ConfigMap<br/>(App Config)"]:::config
+        Secret["Secret<br/>(Passwords/Certs)"]:::config
+    end
+
+    %% Relationships / Flow
+    Client -->|HTTP/HTTPS| Ingress
+    Client -->|HTTP/HTTPS| Gateway
+
+    Gateway -->|"spec.gateways[]"| VS
+    VS -->|"spec.http[].route[].destination.subset"| DR
+    VS -->|"spec.http[].route[].destination.host"| Service
+    Ingress -->|"spec.rules[].http.paths[].backend.service.name"| Service
+    DR -->|"spec.host"| Service
+
+    Service -->|"spec.selector (Finds Pods)"| Pod
+    Deployment -->|"Manages & Creates"| Pod
+    
+    PA -.->|"spec.selector.matchLabels<br/>(Secures incoming traffic)"| Pod
+
+    Deployment -.->|"spec.template.spec.volumes[].configMap"| CM
+    Deployment -.->|"spec.template.spec.containers[].env[].valueFrom"| Secret
+    Gateway -.->|"spec.servers[].tls.credentialName"| Secret
