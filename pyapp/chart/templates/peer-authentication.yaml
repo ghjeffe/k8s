@@ -2,7 +2,7 @@ apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
   name: {{ .Chart.Name }}-mtls
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   mtls:
     mode: {{ .Values.istio.mtls.mode }}

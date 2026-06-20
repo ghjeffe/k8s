@@ -3,7 +3,7 @@ apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
   name: {{ .Chart.Name }}-gateway
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     istio: ingressgateway
@@ -21,7 +21,7 @@ apiVersion: networking.istio.io/v1
 kind: VirtualService
 metadata:
   name: {{ .Chart.Name }}-vs
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   hosts:
     {{- range .Values.istio.gateway.hosts }}
