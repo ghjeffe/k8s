@@ -6,6 +6,7 @@ on:
       - develop
       - main
       - 'release/**'
+      - 'feature/**'
 
 jobs:
   build-and-deploy:
