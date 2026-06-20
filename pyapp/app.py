@@ -16,11 +16,8 @@ def index():
         service=SERVICE_NAME,
         version=SERVICE_VERSION,
         hostname=socket.gethostname(),
-        
-        #TODO: dynamically get the version from an environment variable or config map
-        message=
-'''Hello from inside the mesh you filthy animal!
-application version: 1.3.0''',
+        message=f'''Hello from inside the mesh you filthy animal!
+application version: {SERVICE_VERSION}''',
     )
 
 
