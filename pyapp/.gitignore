@@ -1,0 +1,10 @@
+# Local GitHub Actions self-hosted runner
+**/github-runner/
+**/actions-runner/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor
+.vscode/
