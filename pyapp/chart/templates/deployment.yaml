@@ -29,9 +29,9 @@ spec:
               protocol: TCP
           env:
             - name: SERVICE_NAME
-              value: {{ .Chart.Name }}
+              value: {{ .Chart.Name | quote }}
             - name: SERVICE_VERSION
-              value: {{ .Values.image.tag | quote }}
+              value: {{ .Chart.AppVersion | quote }}
             - name: POD_IP
               valueFrom:
                 fieldRef:
