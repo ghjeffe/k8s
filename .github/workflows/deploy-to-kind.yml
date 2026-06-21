@@ -14,31 +14,58 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: read
+    env:
+      CREATE_CLUSTER: 'false'
+      NAMESPACE: pyapp
+      CLUSTER_BASE: >
+        ${{
+          github.ref_name matches '^feature/' && 'learning' ||
+          github.ref_name == 'develop' && 'dev' ||
+          github.ref_name matches '^release/' && 'uat' ||
+          github.ref_name == 'main' && 'prod' ||
+          'learning'
+        }}
+
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Determine deployment namespace and image tag
+      - name: Determine deployment image tag and cluster
         id: meta
         run: |
-          branch=${GITHUB_REF#refs/heads/}
-          echo "branch=$branch" >> $GITHUB_OUTPUT
-          if [[ "$branch" == "develop" ]]; then
-            echo "namespace=dev" >> $GITHUB_OUTPUT
-          elif [[ "$branch" == "main" ]]; then
-            echo "namespace=prod" >> $GITHUB_OUTPUT
-          elif [[ "$branch" == release/* ]]; then
-            echo "namespace=uat" >> $GITHUB_OUTPUT
-          else
+          if [ -z "${NAMESPACE}" ]; then
+            branch=${GITHUB_REF#refs/heads/}
             echo "Unsupported branch: $branch"
             exit 1
           fi
+          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+          
+          #prepend 'kind-' to cluster name; kind clusters get prepended with 'kind-' by k8s
+          echo "KIND_CLUSTER=kind-${CLUSTER_BASE}" >> $GITHUB_ENV
+
           tag=${GITHUB_SHA::7}
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Ensure Kind cluster exists
+        run: |
+          if [ -z "${KIND_CLUSTER}" ]; then
+            echo "KIND_CLUSTER not set; defaulting to learning"
+            echo "KIND_CLUSTER=learning" >> $GITHUB_ENV
+          fi
+          if kind get clusters | grep -q "^${KIND_CLUSTER}$"; then
+            echo "Kind cluster ${KIND_CLUSTER} exists"
+          else
+            if [ "${CREATE_CLUSTER}" = "true" ]; then
+              echo "Creating Kind cluster ${KIND_CLUSTER}"
+              kind create cluster --name "${KIND_CLUSTER}"
+            else
+              echo "Kind cluster ${KIND_CLUSTER} not found. Set repository variable 'KIND_CLUSTER' or set CREATE_CLUSTER=true to create it."
+              exit 1
+            fi
+          fi
 
       - name: Build Docker image
         working-directory: pyapp
@@ -47,7 +74,7 @@ jobs:
 
       - name: Load image into Kind
         run: |
-          kind load docker-image pyapp:${{ steps.meta.outputs.tag }} --name local-ci
+          kind load docker-image pyapp:${{ steps.meta.outputs.tag }} --name "$KIND_CLUSTER"
 
       - name: Deploy to Kind
         working-directory: pyapp
