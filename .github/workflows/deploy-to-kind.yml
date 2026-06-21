@@ -76,7 +76,9 @@ jobs:
 
       - name: Load image into Kind
         run: |
-          kind load docker-image pyapp:${{ steps.meta.outputs.tag }} --name "$KIND_CLUSTER"
+          # Strip 'kind-' prefix for kind commands (which use cluster names, not context names)
+          CLUSTER_NAME=${KIND_CLUSTER#kind-}
+          kind load docker-image pyapp:${{ steps.meta.outputs.tag }} --name "$CLUSTER_NAME"
 
       - name: Deploy to Kind
         working-directory: pyapp
