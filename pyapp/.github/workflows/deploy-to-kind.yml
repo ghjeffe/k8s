@@ -1,0 +1,56 @@
+name: Deploy to Kind
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+      - main
+      - 'release/**'
+      - 'feature/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine deployment namespace and image tag
+        id: meta
+        run: |
+          branch=${GITHUB_REF#refs/heads/}
+          echo "branch=$branch" >> $GITHUB_OUTPUT
+          if [[ "$branch" == "develop" ]]; then
+            echo "namespace=dev" >> $GITHUB_OUTPUT
+          elif [[ "$branch" == "main" ]]; then
+            echo "namespace=prod" >> $GITHUB_OUTPUT
+          elif [[ "$branch" == release/* ]]; then
+            echo "namespace=uat" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported branch: $branch"
+            exit 1
+          fi
+          tag=${GITHUB_SHA::7}
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t pyapp:${{ steps.meta.outputs.tag }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image pyapp:${{ steps.meta.outputs.tag }} --name local-ci
+
+      - name: Deploy to Kind
+        run: |
+          helm upgrade --install pyapp ./chart \
+            --namespace ${{ steps.meta.outputs.namespace }} \
+            --create-namespace \
+            --set image.tag=${{ steps.meta.outputs.tag }}
