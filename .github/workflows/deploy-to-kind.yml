@@ -17,21 +17,20 @@ jobs:
     env:
       CREATE_CLUSTER: 'false'
       NAMESPACE: pyapp
-      KIND_CLUSTER: >
+      CLUSTER_BASE: >
         ${{
           github.ref_name matches '^feature/' && 'learning' ||
           github.ref_name == 'develop' && 'dev' ||
           github.ref_name matches '^release/' && 'uat' ||
           github.ref_name == 'main' && 'prod' ||
-          vars.KIND_CLUSTER ||
           'learning'
         }}
+
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Determine deployment image tag
+      - name: Determine deployment image tag and cluster
         id: meta
         run: |
           if [ -z "${NAMESPACE}" ]; then
@@ -40,6 +39,10 @@ jobs:
             exit 1
           fi
           echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+          
+          #prepend 'kind-' to cluster name; kind clusters get prepended with 'kind-' by k8s
+          echo "KIND_CLUSTER=kind-${CLUSTER_BASE}" >> $GITHUB_ENV
+
           tag=${GITHUB_SHA::7}
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
