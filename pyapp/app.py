@@ -16,7 +16,7 @@ def index():
         service=SERVICE_NAME,
         version=SERVICE_VERSION,
         hostname=socket.gethostname(),
-        message=f'''Hello from inside the mesh you filthy animal!
+        message=f'''Hello from inside the mesh you filthy steampipe!
 application version: {SERVICE_VERSION}''',
     )
 
