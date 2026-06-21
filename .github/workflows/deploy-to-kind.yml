@@ -45,7 +45,7 @@ jobs:
           echo "KIND_CLUSTER=kind-${CLUSTER_BASE}" >> $GITHUB_ENV
 
           tag=${GITHUB_SHA::7}
-          echo "Determined tag: $tag for branch ${GITHUB_REF_NAME} targeting cluster ${KIND_CLUSTER}"
+          echo "Determined tag: $tag for branch ${GITHUB_REF_NAME} targeting cluster ${CLUSTER_BASE}"
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
