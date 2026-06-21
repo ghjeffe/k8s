@@ -63,19 +63,19 @@ echo 'fs.inotify.max_user_instances = 512' | sudo tee -a /etc/sysctl.d/99-kind.c
 
 ### 1. Create kind clusters
 
-Each cluster is created with `extraPortMappings` so the Istio ingress gateway is permanently accessible on localhost without port-forwarding. Config files are in `../scripts/`.
+Each cluster is created with `extraPortMappings` so the Istio ingress gateway is permanently accessible on localhost without port-forwarding. Config files are in `../scripts/kind/`.
 
 ```bash
-kind create cluster --name learning --config ../scripts/kind-learning.yaml
-kind create cluster --name dev      --config ../scripts/kind-dev.yaml
-kind create cluster --name uat      --config ../scripts/kind-uat.yaml
+kind create cluster --name learning --config ../scripts/kind/kind-learning.yaml
+kind create cluster --name dev      --config ../scripts/kind/kind-dev.yaml
+kind create cluster --name uat      --config ../scripts/kind/kind-uat.yaml
 ```
 
 | Cluster  | HTTP port | HTTPS port | Config file                |
 |----------|-----------|------------|----------------------------|
-| learning | 8081      | 8444       | `scripts/kind-learning.yaml` |
-| dev      | 8082      | 8445       | `scripts/kind-dev.yaml`      |
-| uat      | 8083      | 8446       | `scripts/kind-uat.yaml`      |
+| learning | 8081      | 8444       | `scripts/kind/kind-learning.yaml` |
+| dev      | 8082      | 8445       | `scripts/kind/kind-dev.yaml`      |
+| uat      | 8083      | 8446       | `scripts/kind/kind-uat.yaml`      |
 
 ### 2. Install Istio on each cluster
 

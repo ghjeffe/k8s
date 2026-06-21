@@ -55,14 +55,14 @@ jobs:
             echo "KIND_CLUSTER not set; defaulting to learning"
             echo "KIND_CLUSTER=kind-learning" >> $GITHUB_ENV
           fi
-          # Strip 'kind-' prefix for kind commands (which use cluster names, not context names)
+          # Strip 'kind-' prefix for kind commands
           CLUSTER_NAME=${KIND_CLUSTER#kind-}
           if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
             echo "Kind cluster ${CLUSTER_NAME} exists"
           else
             if [ "${CREATE_CLUSTER}" = "true" ]; then
               echo "Creating Kind cluster ${CLUSTER_NAME}"
-              kind create cluster --name "${CLUSTER_NAME}"
+              kind create cluster --name "${CLUSTER_NAME}" --config scripts/kind/kind-${CLUSTER_NAME}.yaml
             else
               echo "Kind cluster ${CLUSTER_NAME} not found. Set repository variable 'KIND_CLUSTER' or set CREATE_CLUSTER=true to create it."
               exit 1
@@ -83,28 +83,28 @@ jobs:
       - name: Deploy to Kind
         working-directory: pyapp
         run: |
-          # Set kubectl context to the target cluster (using the kind- prefixed context name)
+          # Strip 'kind-' prefix for kind commands
+          CLUSTER_NAME=${KIND_CLUSTER#kind-}
+          
+          # Set kubectl context to the target cluster
           kubectl config use-context "$KIND_CLUSTER"
           helm upgrade --install pyapp ./chart \
             --namespace ${{ steps.meta.outputs.namespace }} \
             --create-namespace \
-            --set image.tag=${{ steps.meta.outputs.tag }}
+            --set image.tag=${{ steps.meta.outputs.tag }} \
+            --set "istio.gateway.hosts[0]=pyapp.${CLUSTER_NAME}.local"
 
       - name: Validate deployment
         working-directory: pyapp
         run: |
           kubectl config use-context "$KIND_CLUSTER"
           kubectl wait --namespace ${{ steps.meta.outputs.namespace }} --for=condition=available deployment/pyapp --timeout=120s
-          set -e
-          kubectl port-forward svc/pyapp 8081:80 --namespace ${{ steps.meta.outputs.namespace }} &
-          PF_PID=$!
-          trap 'kill "$PF_PID"' EXIT
-          until curl -s http://localhost:8081 >/dev/null 2>&1; do
-            sleep 1
-          done
-          message=$(curl -s http://localhost:8081 | jq -r '.message')
-          if [ -z "$message" ]; then
-            echo "Validation failed: response .message is empty"
+          
+          # Use kubectl exec to validate instead of port-forward to avoid port collisions
+          message=$(kubectl exec -n ${{ steps.meta.outputs.namespace }} deploy/pyapp -c pyapp -- curl -s http://localhost:8080/ | jq -r '.message')
+          
+          if [ -z "$message" ] || [ "$message" = "null" ]; then
+            echo "Validation failed: response .message is empty or null"
             exit 1
           fi
           echo "Validation succeeded: .message is '$message'"
