@@ -53,16 +53,18 @@ jobs:
         run: |
           if [ -z "${KIND_CLUSTER}" ]; then
             echo "KIND_CLUSTER not set; defaulting to learning"
-            echo "KIND_CLUSTER=learning" >> $GITHUB_ENV
+            echo "KIND_CLUSTER=kind-learning" >> $GITHUB_ENV
           fi
-          if kind get clusters | grep -q "^${KIND_CLUSTER}$"; then
-            echo "Kind cluster ${KIND_CLUSTER} exists"
+          # Strip 'kind-' prefix for kind commands (which use cluster names, not context names)
+          CLUSTER_NAME=${KIND_CLUSTER#kind-}
+          if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+            echo "Kind cluster ${CLUSTER_NAME} exists"
           else
             if [ "${CREATE_CLUSTER}" = "true" ]; then
-              echo "Creating Kind cluster ${KIND_CLUSTER}"
-              kind create cluster --name "${KIND_CLUSTER}"
+              echo "Creating Kind cluster ${CLUSTER_NAME}"
+              kind create cluster --name "${CLUSTER_NAME}"
             else
-              echo "Kind cluster ${KIND_CLUSTER} not found. Set repository variable 'KIND_CLUSTER' or set CREATE_CLUSTER=true to create it."
+              echo "Kind cluster ${CLUSTER_NAME} not found. Set repository variable 'KIND_CLUSTER' or set CREATE_CLUSTER=true to create it."
               exit 1
             fi
           fi
