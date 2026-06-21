@@ -23,8 +23,7 @@ jobs:
           startsWith(github.ref_name, 'feature/') && 'learning' ||
           github.ref_name == 'develop' && 'dev' ||
           startsWith(github.ref_name, 'release/') && 'uat' ||
-          github.ref_name == 'main' && 'prod' ||
-          'learning'
+          github.ref_name == 'main' && 'prod'
         }}
 
 
