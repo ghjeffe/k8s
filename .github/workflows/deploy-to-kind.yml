@@ -19,9 +19,9 @@ jobs:
       NAMESPACE: pyapp
       CLUSTER_BASE: >
         ${{
-          github.ref_name matches '^feature/' && 'learning' ||
+          startsWith(github.ref_name, 'feature/') && 'learning' ||
           github.ref_name == 'develop' && 'dev' ||
-          github.ref_name matches '^release/' && 'uat' ||
+          startsWith(github.ref_name, 'release/') && 'uat' ||
           github.ref_name == 'main' && 'prod' ||
           'learning'
         }}
