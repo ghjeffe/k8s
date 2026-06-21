@@ -89,3 +89,22 @@ jobs:
             --namespace ${{ steps.meta.outputs.namespace }} \
             --create-namespace \
             --set image.tag=${{ steps.meta.outputs.tag }}
+
+      - name: Validate deployment
+        working-directory: pyapp
+        run: |
+          kubectl config use-context "$KIND_CLUSTER"
+          kubectl wait --namespace ${{ steps.meta.outputs.namespace }} --for=condition=available deployment/pyapp --timeout=120s
+          set -e
+          kubectl port-forward svc/pyapp 8081:80 --namespace ${{ steps.meta.outputs.namespace }} &
+          PF_PID=$!
+          trap 'kill "$PF_PID"' EXIT
+          until curl -s http://localhost:8081 >/dev/null 2>&1; do
+            sleep 1
+          done
+          message=$(curl -s http://localhost:8081 | jq -r '.message')
+          if [ -z "$message" ]; then
+            echo "Validation failed: response .message is empty"
+            exit 1
+          fi
+          echo "Validation succeeded: .message is '$message'"
