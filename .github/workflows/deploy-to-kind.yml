@@ -83,6 +83,8 @@ jobs:
       - name: Deploy to Kind
         working-directory: pyapp
         run: |
+          # Set kubectl context to the target cluster (using the kind- prefixed context name)
+          kubectl config use-context "$KIND_CLUSTER"
           helm upgrade --install pyapp ./chart \
             --namespace ${{ steps.meta.outputs.namespace }} \
             --create-namespace \
