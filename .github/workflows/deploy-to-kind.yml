@@ -8,6 +8,7 @@ on:
       - main
       - 'release/**'
       - 'feature/**'
+      - 'bugfix/**'
 
 jobs:
   build-and-deploy:
@@ -20,16 +21,16 @@ jobs:
       CLUSTER_BASE: >
         ${{
           startsWith(github.ref_name, 'feature/') && 'learning' ||
+          startsWith(github.ref_name, 'bugfix/') && 'learning' ||
           github.ref_name == 'develop' && 'dev' ||
           startsWith(github.ref_name, 'release/') && 'uat' ||
-          github.ref_name == 'main' && 'prod' ||
-          'learning'
+          github.ref_name == 'main' && 'prod'
         }}
 
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
       - name: Determine deployment image tag and cluster
         id: meta
         run: |
@@ -44,10 +45,11 @@ jobs:
           echo "KIND_CLUSTER=kind-${CLUSTER_BASE}" >> $GITHUB_ENV
 
           tag=${GITHUB_SHA::7}
+          echo "Determined tag: $tag for branch ${GITHUB_REF_NAME} targeting cluster ${KIND_CLUSTER}"
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4.1.0
 
       - name: Ensure Kind cluster exists
         run: |
