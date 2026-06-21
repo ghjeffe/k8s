@@ -21,6 +21,7 @@ jobs:
       CLUSTER_BASE: >
         ${{
           startsWith(github.ref_name, 'feature/') && 'learning' ||
+          startsWith(github.ref_name, 'bugfix/') && 'learning' ||
           github.ref_name == 'develop' && 'dev' ||
           startsWith(github.ref_name, 'release/') && 'uat' ||
           github.ref_name == 'main' && 'prod'
