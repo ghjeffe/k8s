@@ -101,7 +101,7 @@ jobs:
           kubectl wait --namespace ${{ steps.meta.outputs.namespace }} --for=condition=available deployment/pyapp --timeout=120s
           
           # Use kubectl exec to validate instead of port-forward to avoid port collisions
-          message=$(kubectl exec -n ${{ steps.meta.outputs.namespace }} deploy/pyapp -c pyapp -- curl -s http://localhost:8080/ | jq -r '.message')
+          message=$(kubectl exec -n ${{ steps.meta.outputs.namespace }} deploy/pyapp -c pyapp -- python3 -c "import urllib.request, json; print(json.loads(urllib.request.urlopen('http://localhost:8080/').read().decode())['message'])")
           
           if [ -z "$message" ] || [ "$message" = "null" ]; then
             echo "Validation failed: response .message is empty or null"
