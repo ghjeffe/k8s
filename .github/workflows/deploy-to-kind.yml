@@ -14,8 +14,7 @@ jobs:
   build-and-deploy:
     runs-on: self-hosted
     permissions:
-      contents: read
-      contents: write  # For tagging commits
+      contents: write # For tagging commits
     env:
       CREATE_CLUSTER: 'false'
       NAMESPACE: pyapp
