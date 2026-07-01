@@ -15,16 +15,25 @@ jobs:
     runs-on: self-hosted
     permissions:
       contents: read
+      contents: write  # For tagging commits
     env:
       CREATE_CLUSTER: 'false'
       NAMESPACE: pyapp
-      CLUSTER_BASE: >
+      PRIMARY_CLUSTER: >
         ${{
           startsWith(github.ref_name, 'feature/') && 'learning' ||
           startsWith(github.ref_name, 'bugfix/') && 'learning' ||
           github.ref_name == 'develop' && 'dev' ||
           startsWith(github.ref_name, 'release/') && 'uat' ||
           github.ref_name == 'main' && 'prod'
+        }}
+      DEPLOY_TO_PROD: >
+        ${{
+          startsWith(github.ref_name, 'release/') || github.ref_name == 'main'
+        }}
+      IS_RELEASE: >
+        ${{
+          startsWith(github.ref_name, 'release/')
         }}
 
 
@@ -42,10 +51,10 @@ jobs:
           echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
           
           #prepend 'kind-' to cluster name; kind clusters get prepended with 'kind-' by k8s
-          echo "KIND_CLUSTER=kind-${CLUSTER_BASE}" >> $GITHUB_ENV
+          echo "KIND_CLUSTER=kind-${PRIMARY_CLUSTER}" >> $GITHUB_ENV
 
           tag=${GITHUB_SHA::7}
-          echo "Determined tag: $tag for branch ${GITHUB_REF_NAME} targeting cluster ${CLUSTER_BASE}"
+          echo "Determined tag: $tag for branch ${GITHUB_REF_NAME} targeting cluster ${PRIMARY_CLUSTER}"
           echo "tag=$tag" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
@@ -110,3 +119,43 @@ jobs:
             exit 1
           fi
           echo "Validation succeeded: .message is '$message'"
+
+      - name: Deploy to prod cluster (for release and main branches)
+        if: env.DEPLOY_TO_PROD == 'true'
+        working-directory: pyapp
+        run: |
+          # For release branches, deploy to prod after successful uat deployment
+          kubectl config use-context "kind-prod"
+          helm upgrade --install pyapp ./chart \
+            --namespace ${{ steps.meta.outputs.namespace }} \
+            --create-namespace \
+            --set image.tag=${{ steps.meta.outputs.tag }} \
+            --set "istio.gateway.hosts[0]=pyapp.prod.local"
+
+      - name: Validate prod deployment
+        if: env.DEPLOY_TO_PROD == 'true'
+        working-directory: pyapp
+        run: |
+          kubectl config use-context "kind-prod"
+          kubectl wait --namespace ${{ steps.meta.outputs.namespace }} --for=condition=available deployment/pyapp --timeout=120s
+          
+          message=$(kubectl exec -n ${{ steps.meta.outputs.namespace }} deploy/pyapp -c pyapp -- python3 -c "import urllib.request, json; print(json.loads(urllib.request.urlopen('http://localhost:8080/').read().decode())['message'])")
+          
+          if [ -z "$message" ] || [ "$message" = "null" ]; then
+            echo "Validation failed: response .message is empty or null"
+            exit 1
+          fi
+          echo "Validation succeeded for prod: .message is '$message'"
+
+      - name: Tag commit after prod deployment
+        if: env.DEPLOY_TO_PROD == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create an annotated tag with the short commit hash
+          TAG_NAME="${{ steps.meta.outputs.tag }}"
+          git tag -a "$TAG_NAME" -m "Deployment tag for commit ${{ github.sha }}" ${{ github.sha }}
+          git push origin "$TAG_NAME"
+          
+          echo "Tagged commit ${{ github.sha }} with tag $TAG_NAME"
